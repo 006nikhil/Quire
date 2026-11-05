@@ -1,5 +1,5 @@
 // Quire service worker: the whole app works offline once installed.
-const VERSION = 'quire-v4';
+const VERSION = 'quire-v5';
 const ASSETS = [
   "./",
   "css/app.css",

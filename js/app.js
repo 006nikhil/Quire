@@ -1,4 +1,4 @@
-import { $, $$, h, icon, esc, uid, toast, openSheet, confirmSheet, needEpub, makeCover, shrinkImage, blobUrl, plural, fmtBytes, relTime, saveFile, closeAllSheets, topSheet } from './util.js';
+import { $, $$, h, icon, esc, uid, toast, openSheet, confirmSheet, needEpub, makeCover, shrinkImage, blobUrl, packCover, forgetUrl, plural, fmtBytes, relTime, saveFile, closeAllSheets, topSheet } from './util.js';
 import { db, settings, saveSettings, storageInfo } from './db.js';
 import { formatOf, openSource } from './source.js';
 import { renderMarginalia, resetMarginalia, marginalia, openSignIn, openSendSheet } from './marginalia.js';
@@ -59,6 +59,7 @@ async function addEpub(file, extra = {}) {
   const author = (meta.creator || '').trim();
   try { book.destroy(); } catch (e) {}
   if (!cover) cover = await makeCover({ title, author, seed: title });
+  cover = await packCover(cover);
   const rec = { id: uid(), kind: 'book', format: 'epub', title, author, cover, size: file.size, fileName: file.name, addedAt: Date.now(), openedAt: 0, progress: 0, loc: null, ...extra };
   await db.put('files', { id: rec.id, blob: file });
   await db.put('books', rec);
@@ -72,6 +73,7 @@ async function addPaged(file, fmt) {
   const count = src.count; src.close();
   const title = file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!cover) cover = await makeCover({ title, seed: title, kind: 'comic' });
+  cover = await packCover(cover);
   const rec = { id: uid(), kind: fmt === 'pdf' ? 'pdf' : 'comic', format: fmt, title, author: '', cover, size: file.size, fileName: file.name, addedAt: Date.now(), openedAt: 0, progress: 0, loc: 0, pages: count };
   await db.put('files', { id: rec.id, blob: file });
   await db.put('books', rec);
@@ -99,7 +101,7 @@ async function openBook(id) {
 
 /* ───────────────────────────── library ───────────────────────────── */
 function bookHtml(b, thick) {
-  return `<div class="book ${thick ? 'thick' : ''}"><div class="cover">${b.cover ? `<img src="${blobUrl(b.id, b.cover)}" alt="" loading="lazy" decoding="async">` : ''}</div></div>`;
+  return `<div class="book ${thick ? 'thick' : ''}"><div class="cover">${b.cover ? `<img src="${blobUrl(b.id, b.cover)}" alt="" decoding="async" data-cover="${b.id}">` : ''}</div></div>`;
 }
 function statusFor(b) {
   if (b.finished || b.progress >= 0.995) return 'Finished';
@@ -107,9 +109,51 @@ function statusFor(b) {
   return Math.max(1, Math.round((b.progress || 0) * 100)) + '%';
 }
 
+/* Rebuild a cover from the book file itself (used when a stored cover is unreadable). */
+const repairing = new Set();
+async function repairCover(id) {
+  if (repairing.has(id)) return; repairing.add(id);
+  try {
+    const b = await db.get('books', id); const f = await db.get('files', id);
+    if (!b) return;
+    let cover = null;
+    if (f) {
+      try {
+        if (b.format === 'epub') {
+          const ePub = await needEpub(); const book = ePub(await f.blob.arrayBuffer());
+          await book.ready; const cu = await book.coverUrl();
+          if (cu) cover = await shrinkImage(await (await fetch(cu)).blob(), 600);
+          try { book.destroy(); } catch (e) {}
+        } else {
+          const src = await openSource(f.blob, b.format, b.fileName); cover = await shrinkImage(await src.page(0), 600); src.close();
+        }
+      } catch (e) { console.warn('cover rebuild', e); }
+    }
+    if (!cover) cover = await makeCover({ title: b.title, author: b.author, seed: b.title, kind: b.kind === 'book' ? 'book' : 'comic' });
+    const fresh = await db.get('books', id);
+    fresh.cover = await packCover(cover);
+    await db.put('books', fresh);
+    forgetUrl(id);
+    const url = blobUrl(id, fresh.cover);
+    $$(`img[data-cover="${id}"]`).forEach((im) => { im.src = url; });
+  } finally { repairing.delete(id); }
+}
+// Covers saved by earlier versions were Blobs; convert them once, or rebuild them if already damaged.
+async function migrateCovers(books) {
+  for (const b of books) {
+    if (!(b.cover instanceof Blob)) continue;
+    let packed = null;
+    try { packed = await packCover(b.cover); if (!packed.buf.byteLength) packed = null; } catch (e) { packed = null; }
+    if (packed) { const fresh = await db.get('books', b.id); fresh.cover = packed; await db.put('books', fresh); b.cover = packed; }
+    else await repairCover(b.id);
+  }
+}
+document.addEventListener('error', (e) => { const id = e.target?.dataset?.cover; if (id) repairCover(id); }, true);
+
 async function renderLibrary() {
   const page = pages.library;
-  const books = await db.all('books');
+  let books = await db.all('books');
+  if (books.some((b) => b.cover instanceof Blob)) { await migrateCovers(books); books = await db.all('books'); }
   const filter = settings.shelfFilter;
   const shown = books.filter((b) => filter === 'all' || (filter === 'books' ? b.kind === 'book' : b.kind !== 'book'));
   const sorters = { recent: (a, b) => Math.max(b.openedAt, b.addedAt) - Math.max(a.openedAt, a.addedAt), title: (a, b) => a.title.localeCompare(b.title), added: (a, b) => b.addedAt - a.addedAt };
@@ -345,4 +389,4 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 // share-target style: open files passed via ?open (future) — and expose for debugging
 window.quire = { importFiles, openBook, db };
-void h; void openSource;
+void h;

@@ -202,17 +202,26 @@ export async function shrinkImage(blob, maxW = 600) {
   } catch (e) { return blob; }
 }
 
-/* ── object URL cache for covers ── */
+/* ── covers ──
+   Covers are stored as raw bytes ({ type, buf }), never as Blobs: Safari can corrupt a Blob that is
+   read from IndexedDB and written back, which happens every time a book's progress is saved. */
+export async function packCover(blob) {
+  if (!blob) return null;
+  return { type: blob.type || 'image/jpeg', buf: await blob.arrayBuffer() };
+}
 const urlCache = new Map();
-export function blobUrl(key, blob) {
-  if (!blob) return '';
+export function blobUrl(key, data) {
+  if (!data) return '';
+  const blob = data instanceof Blob ? data : new Blob([data.buf], { type: data.type });
+  const sig = data instanceof Blob ? data : `${data.type}:${data.buf.byteLength}`;
   const hit = urlCache.get(key);
-  if (hit && hit.blob === blob) return hit.url;
+  if (hit && hit.sig === sig) return hit.url;
   if (hit) URL.revokeObjectURL(hit.url);
   const url = URL.createObjectURL(blob);
-  urlCache.set(key, { blob, url });
+  urlCache.set(key, { sig, url });
   return url;
 }
+export function forgetUrl(key) { const hit = urlCache.get(key); if (hit) { URL.revokeObjectURL(hit.url); urlCache.delete(key); } }
 
 /* ── save / share a file (works in iOS standalone mode) ── */
 export async function saveFile(blob, name) {
