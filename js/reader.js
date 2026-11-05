@@ -4,11 +4,11 @@ import { db, settings, saveSettings } from './db.js';
 import { marginalia } from './marginalia.js';
 
 export const THEMES = {
-  paper: { name: 'Paper', bg: '#F8F6F0', fg: '#26241F', muted: '#8C877C', line: 'rgba(40,36,28,.12)', glass: 'rgba(248,246,240,.84)', strong: 'rgba(251,250,246,.95)', sheet: '#EFECE4', dark: false },
-  sepia: { name: 'Sepia', bg: '#F1E5CB', fg: '#3A2E1F', muted: '#8C775A', line: 'rgba(80,58,24,.16)', glass: 'rgba(241,229,203,.86)', strong: 'rgba(245,236,214,.95)', sheet: '#E8DABB', dark: false },
-  sage: { name: 'Sage', bg: '#DEE6DB', fg: '#1E2A23', muted: '#69786F', line: 'rgba(30,50,40,.14)', glass: 'rgba(222,230,219,.86)', strong: 'rgba(230,236,228,.95)', sheet: '#D2DCCF', dark: false },
-  dusk: { name: 'Dusk', bg: '#1F2528', fg: '#D7D3C8', muted: '#848A88', line: 'rgba(255,255,255,.10)', glass: 'rgba(31,37,40,.84)', strong: 'rgba(38,45,49,.95)', sheet: '#272E32', dark: true },
-  night: { name: 'Night', bg: '#000000', fg: '#B8B3A7', muted: '#6C6962', line: 'rgba(255,255,255,.11)', glass: 'rgba(14,14,14,.86)', strong: 'rgba(24,24,24,.95)', sheet: '#121212', dark: true },
+  paper: { name: 'Paper', bg: '#F8F6F0', fg: '#26241F', muted: '#6F6A60', line: 'rgba(40,36,28,.12)', glass: 'rgba(248,246,240,.84)', strong: 'rgba(251,250,246,.95)', sheet: '#EFECE4', dark: false },
+  sepia: { name: 'Sepia', bg: '#F1E5CB', fg: '#3A2E1F', muted: '#77634A', line: 'rgba(80,58,24,.16)', glass: 'rgba(241,229,203,.86)', strong: 'rgba(245,236,214,.95)', sheet: '#E8DABB', dark: false },
+  sage: { name: 'Sage', bg: '#DEE6DB', fg: '#1E2A23', muted: '#56665D', line: 'rgba(30,50,40,.14)', glass: 'rgba(222,230,219,.86)', strong: 'rgba(230,236,228,.95)', sheet: '#D2DCCF', dark: false },
+  dusk: { name: 'Dusk', bg: '#1F2528', fg: '#D7D3C8', muted: '#A0A6A3', line: 'rgba(255,255,255,.10)', glass: 'rgba(31,37,40,.84)', strong: 'rgba(38,45,49,.95)', sheet: '#272E32', dark: true },
+  night: { name: 'Night', bg: '#000000', fg: '#B8B3A7', muted: '#938E84', line: 'rgba(255,255,255,.11)', glass: 'rgba(14,14,14,.86)', strong: 'rgba(24,24,24,.95)', sheet: '#121212', dark: true },
 };
 export const FONTS = {
   newyork: { label: 'New York', css: 'ui-serif, "New York", "Iowan Old Style", Georgia, serif' },
@@ -78,7 +78,7 @@ export async function openEpub(rec, { onClose } = {}) {
   if (!file) { toast('This book’s file is missing. Try adding it again.'); return; }
 
   const el = h(`<div class="reader" role="application" aria-label="${esc(rec.title)}">
-    <div class="rmeta top"><button class="mini" data-act="close" aria-label="Back to library">${icon('back')}</button><span class="m-chap"></span><button class="mini aa" data-act="type" aria-label="Text and theme">Aa</button></div>
+    <div class="rmeta top"><button class="mini" data-act="close" aria-label="Back to library">${icon('back')}</button><span class="m-title">${esc(rec.title)}</span><button class="mini aa" data-act="type" aria-label="Text and theme">Aa</button></div>
     <div class="stage"><div class="epub-area"></div></div>
     <div class="rmeta bot"><span class="m-left"></span><span class="m-pct"></span></div>
     <div class="loading-veil"><div><div class="t">${esc(rec.title)}</div><div class="s">Opening</div></div></div>
@@ -358,10 +358,9 @@ function onRelocated(loc) {
   R.loc = loc;
   const el = R.el;
   const chap = chapterFor(loc.start.href);
-  $('.m-chap', el).textContent = chap;
   const d = loc.start.displayed || {};
   const left = d.total ? d.total - d.page : 0;
-  $('.m-left', el).textContent = d.total ? (left === 0 ? 'Last page in chapter' : `${plural(left, 'page')} left in chapter`) : '';
+  $('.m-left', el).textContent = d.total ? (left === 0 ? 'Last page in chapter' : `${plural(left, 'page')} left in chapter`) : (chap || '');
   let pct = null;
   if (R.locReady) {
     pct = R.book.locations.percentageFromCfi(loc.start.cfi);

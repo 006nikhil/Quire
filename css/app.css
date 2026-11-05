@@ -335,14 +335,14 @@ mark.q { background: rgba(214, 182, 107, .32); color: inherit; border-radius: 2p
 .reader iframe { background: transparent !important; color-scheme: inherit; }
 .reader .rmeta {
   position: absolute; left: 24px; right: 24px; display: flex; justify-content: space-between; gap: 16px;
-  font-size: 11.5px; color: var(--r-muted, #888); pointer-events: none; font-variant-numeric: tabular-nums; transition: opacity .3s;
+  font-size: 12.5px; color: var(--r-muted, #888); pointer-events: none; font-variant-numeric: tabular-nums; transition: opacity .3s;
 }
 .reader .rmeta.top { top: calc(var(--safe-t) + 10px); }
 .reader .rmeta.bot { bottom: calc(var(--safe-b) + 10px); }
 .reader .rmeta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .reader.chrome .rmeta { opacity: 0; pointer-events: none; }
 .reader .rmeta.top { top: calc(var(--safe-t) + 2px); left: 8px; right: 8px; align-items: center; }
-.reader .rmeta.top .m-chap { flex: 1; text-align: center; }
+.reader .rmeta.top .m-title { flex: 1; text-align: center; font-weight: 500; }
 .reader .mini { pointer-events: auto; width: 44px; height: 32px; display: grid; place-items: center; color: var(--r-muted); border-radius: 10px; flex: none; }
 .reader .mini svg.i { width: 19px; height: 19px; }
 .reader .mini.aa { font-family: var(--f-display); font-size: 16px; }

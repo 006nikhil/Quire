@@ -27,14 +27,17 @@
     function fit() {
       var gap = 0;
       if (standalone) {
-        var portrait = window.innerHeight >= window.innerWidth;
+        // trust the largest height any API reports; only bridge a gap if they all agree it exists
+        var h = Math.max(window.innerHeight, document.documentElement.clientHeight || 0, (window.visualViewport && visualViewport.height) || 0);
+        var portrait = h >= window.innerWidth;
         var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-        var d = full - window.innerHeight;
+        var d = full - h;
         if (d > 0 && d < 160) gap = d;
       }
       document.documentElement.style.setProperty('--gap', gap + 'px');
     }
-    fit(); addEventListener('resize', fit); addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+    fit(); setTimeout(fit, 250); setTimeout(fit, 1200); addEventListener('pageshow', fit); if (window.visualViewport) visualViewport.addEventListener('resize', fit);
+    addEventListener('resize', fit); addEventListener('orientationchange', function () { setTimeout(fit, 300); });
   })();
 </script>
 </head>
