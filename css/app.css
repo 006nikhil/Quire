@@ -62,7 +62,7 @@
 
 /* ───────────────────────── base ───────────────────────── */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overscroll-behavior: none; }
 /* iOS home-screen apps can report a viewport shorter than the screen; --gap is the missing strip,
    measured in index.html, so full-screen layers reach the real bottom edge. */
 #app, .reader, .comic { bottom: calc(0px - var(--gap, 0px)) !important; }
@@ -340,7 +340,24 @@ mark.q { background: rgba(214, 182, 107, .32); color: inherit; border-radius: 2p
 .reader .rmeta.top { top: calc(var(--safe-t) + 10px); }
 .reader .rmeta.bot { bottom: calc(var(--safe-b) + 10px); }
 .reader .rmeta span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.reader.chrome .rmeta { opacity: 0; }
+.reader.chrome .rmeta { opacity: 0; pointer-events: none; }
+.reader .rmeta.top { top: calc(var(--safe-t) + 2px); left: 8px; right: 8px; align-items: center; }
+.reader .rmeta.top .m-chap { flex: 1; text-align: center; }
+.reader .mini { pointer-events: auto; width: 44px; height: 32px; display: grid; place-items: center; color: var(--r-muted); border-radius: 10px; flex: none; }
+.reader .mini svg.i { width: 19px; height: 19px; }
+.reader .mini.aa { font-family: var(--f-display); font-size: 16px; }
+.reader .mini:active { background: var(--r-line); }
+.reader .stage { will-change: transform, opacity; }
+.extend-banner {
+  position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 40px); z-index: 7;
+  display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px; border-radius: 16px;
+  background: var(--r-glass-strong); color: var(--r-fg); border: 1px solid var(--gilt); font-size: 14px; line-height: 1.35;
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 10px 30px rgba(0,0,0,.2);
+  transform: translateY(-140%); opacity: 0; pointer-events: none; transition: transform .3s var(--spring), opacity .2s;
+}
+.extend-banner span { flex: 1; }
+.extend-banner button { color: var(--gilt); font-weight: 600; padding: 8px 10px; }
+.reader.extending .extend-banner { transform: none; opacity: 1; pointer-events: auto; }
 
 .rbar {
   position: absolute; left: 0; right: 0; z-index: 5; color: var(--r-fg); transition: transform .35s var(--ease), opacity .3s;

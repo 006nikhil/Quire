@@ -32,7 +32,7 @@ function readerCss() {
   const f = FONTS[settings.font] || FONTS.newyork;
   return `
     :root { color-scheme: ${t.dark ? 'dark' : 'light'}; }
-    html, body { background: transparent !important; }
+    html, body { background: transparent !important; overscroll-behavior: none; }
     body { color: ${t.fg} !important; font-size: ${settings.fontSize}% !important; ${f.css ? `font-family: ${f.css} !important;` : ''}
       -webkit-text-size-adjust: 100%; text-rendering: optimizeLegibility; font-kerning: normal; font-variant-ligatures: common-ligatures; }
     body *:not(a):not(mark) { color: inherit !important; background-color: transparent !important; ${f.css ? `font-family: inherit !important;` : ''} }
@@ -78,7 +78,7 @@ export async function openEpub(rec, { onClose } = {}) {
   if (!file) { toast('This book’s file is missing. Try adding it again.'); return; }
 
   const el = h(`<div class="reader" role="application" aria-label="${esc(rec.title)}">
-    <div class="rmeta top"><span class="m-chap"></span><span class="m-time"></span></div>
+    <div class="rmeta top"><button class="mini" data-act="close" aria-label="Back to library">${icon('back')}</button><span class="m-chap"></span><button class="mini aa" data-act="type" aria-label="Text and theme">Aa</button></div>
     <div class="stage"><div class="epub-area"></div></div>
     <div class="rmeta bot"><span class="m-left"></span><span class="m-pct"></span></div>
     <div class="loading-veil"><div><div class="t">${esc(rec.title)}</div><div class="s">Opening</div></div></div>
@@ -97,10 +97,12 @@ export async function openEpub(rec, { onClose } = {}) {
         <button class="icon-btn" data-act="send" aria-label="Send highlights to Marginalia">${icon('send')}</button>
       </div>
     </div>
+    <div class="extend-banner" role="status"><span>Turn to where the passage ends and tap its last word.</span><button data-x="cancel">Cancel</button></div>
     <div class="hlbar" role="toolbar" aria-label="Highlight">
       ${Object.keys(HL).map((c) => `<button class="dot" data-color="${c}" aria-label="Highlight ${c}"><i style="background:${HL[c]}"></i></button>`).join('')}
       <span class="sep"></span>
       <button class="icon-btn" data-hl="note" aria-label="Add note">${icon('pen')}</button>
+      <button class="icon-btn" data-hl="extend" aria-label="Continue highlight onto later pages">${icon('extend')}</button>
       <button class="icon-btn" data-hl="copy" aria-label="Copy">${icon('copy')}</button>
       <button class="icon-btn" data-hl="delete" aria-label="Remove highlight" hidden>${icon('trash')}</button>
     </div>
@@ -110,8 +112,17 @@ export async function openEpub(rec, { onClose } = {}) {
   document.body.classList.add('reading');
 
   const book = ePub(await file.blob.arrayBuffer());
+  // Safari drops every touch and selection event in a sandboxed iframe that can't run scripts,
+  // so the frame must allow scripts. The book's own scripts are removed before it is shown.
+  book.spine.hooks.serialize.register((output, section) => {
+    section.output = String(section.output || output)
+      .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+      .replace(/<script\b[^>]*\/>/gi, '')
+      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, '')
+      .replace(/(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"');
+  });
   const area = $('.epub-area', el);
-  const rendition = book.renderTo(area, { width: '100%', height: '100%', flow: 'paginated', spread: 'auto', minSpreadWidth: 900, allowScriptedContent: false });
+  const rendition = book.renderTo(area, { width: '100%', height: '100%', flow: 'paginated', spread: 'auto', minSpreadWidth: 900, allowScriptedContent: true });
 
   R = { rec, el, book, rendition, onClose, sel: null, editing: null, hits: 0, toc: [], loc: null, highlights: [], bookmarks: [], locReady: false };
 
@@ -211,6 +222,7 @@ function wireChrome() {
     const act = e.target.closest('[data-hl]')?.dataset.hl;
     if (dot) { haptic(); if (R.editing) await recolor(R.editing, dot.dataset.color); else await createHighlight(dot.dataset.color); }
     else if (act === 'copy') { const t = R.editing ? R.editing.text : R.sel?.text; if (t) copyText(t); clearSelection(); hideHlBar(); }
+    else if (act === 'extend') { startExtend(); }
     else if (act === 'note') { const hl = R.editing || (await createHighlight(settings.lastColor || 'amber', true)); if (hl) editNote(hl); }
     else if (act === 'delete' && R.editing) { await deleteHighlight(R.editing); }
   });
@@ -218,22 +230,56 @@ function wireChrome() {
 
 function onKey(e) {
   if (!R || document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-  if (e.key === 'ArrowRight' || e.key === ' ') R.rendition.next();
-  if (e.key === 'ArrowLeft') R.rendition.prev();
+  if (e.key === 'ArrowRight' || e.key === ' ') turn(1);
+  if (e.key === 'ArrowLeft') turn(-1);
   if (e.key === 'Escape') { if (R.el.classList.contains('chrome')) toggleChrome(false); else closeReader(); }
 }
 
-/* ───────────────────────── gestures inside the page ───────────────────────── */
-// Taps are read from touchend (iOS does not reliably fire click on plain text or images).
-// Mouse clicks are handled separately for desktop. Highlight taps arrive as clicks from epub.js;
-// the short delay lets those win over a page turn.
+/* ───────────────────────── page turning ───────────────────────── */
+let turning = false;
+async function turn(dir, fromDx = 0) {
+  if (!R || turning) return;
+  turning = true;
+  const stage = $('.stage', R.el), W = window.innerWidth;
+  hideHlBar(); toggleChrome(false);
+  const out = dir > 0 ? -W * 0.3 : W * 0.3;
+  try {
+    // the old page slides away with your finger...
+    await stage.animate([{ transform: `translateX(${fromDx}px)`, opacity: 1 - Math.min(0.5, Math.abs(fromDx) / W) }, { transform: `translateX(${out}px)`, opacity: 0 }], { duration: fromDx ? 130 : 160, easing: 'cubic-bezier(.4,0,1,1)' }).finished;
+  } catch (e) {}
+  // ...then the page must be perfectly still while epub.js turns it, or it miscounts pages
+  stage.style.transform = ''; stage.style.opacity = '0';
+  try { await (dir > 0 ? R.rendition.next() : R.rendition.prev()); } catch (e) {}
+  await new Promise((r) => requestAnimationFrame(r));
+  stage.style.opacity = '';
+  try { await stage.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' }).finished; } catch (e) {}
+  turning = false;
+}
+function dragStage(dx) {
+  const stage = $('.stage', R.el);
+  stage.style.transform = `translateX(${dx}px)`;
+  stage.style.opacity = String(1 - Math.min(0.5, Math.abs(dx) / window.innerWidth));
+}
+function snapBack() {
+  const stage = $('.stage', R.el);
+  stage.animate([{ transform: stage.style.transform || 'none', opacity: stage.style.opacity || 1 }, { transform: 'translateX(0)', opacity: 1 }], { duration: 220, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  stage.style.transform = ''; stage.style.opacity = '';
+}
+
+/* ───────────────────────── gestures inside the page ─────────────────────────
+   Swipes drag the page with your finger. Taps: left quarter = back, right quarter = forward,
+   middle = show or hide the controls. Highlight taps (from epub.js) win over page taps. */
 let lastTouchTap = 0;
-function tapAt(x) {
+function tapAt(x, contents, cx, cy) {
   if (!R) return;
-  if (Date.now() - R.hits < 450) return; // a highlight was tapped
+  if (Date.now() - R.hits < 450) return;
   if (R.el.querySelector('.hlbar.on')) { hideHlBar(); return; }
-  if (x < 0.27) { toggleChrome(false); R.rendition.prev(); }
-  else if (x > 0.73) { toggleChrome(false); R.rendition.next(); }
+  if (R.extend && contents && x >= 0.25 && x <= 0.75) {
+    const c = caretAt(contents.document, cx, cy);
+    if (c) return finishExtend(contents, c.node, c.offset);
+  }
+  if (x < 0.25) turn(-1);
+  else if (x > 0.75) turn(1);
   else toggleChrome();
 }
 function frameLeft(contents) {
@@ -241,32 +287,44 @@ function frameLeft(contents) {
 }
 function wireContentGestures(contents) {
   const doc = contents.document, win = contents.window;
-  let sx = 0, sy = 0, st = 0, moved = false, multi = false;
-  doc.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); moved = false; multi = e.touches.length > 1; }, { passive: true });
-  doc.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) moved = true; if (e.touches.length > 1) multi = true; }, { passive: true });
+  let g = null;
+  const selActive = () => { const s = win.getSelection(); return s && !s.isCollapsed; };
+  doc.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) { g = null; return; }
+    const t = e.touches[0];
+    g = { sx: t.screenX, sy: t.screenY, cx: t.clientX, cy: t.clientY, t: Date.now(), moved: false, horiz: null, fl: frameLeft(contents) };
+  }, { passive: true });
+  doc.addEventListener('touchmove', (e) => {
+    if (!g || turning) return;
+    if (e.touches.length > 1 || selActive()) { if (g.horiz) snapBack(); g = null; return; }
+    const t = e.touches[0]; const dx = t.screenX - g.sx, dy = t.screenY - g.sy;
+    if (!g.moved && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) { g.moved = true; g.horiz = Math.abs(dx) > Math.abs(dy); }
+    if (g.horiz) { if (Date.now() - g.t > 380 && Math.abs(dx) < 20) { g = null; return; } if (e.cancelable) e.preventDefault(); dragStage(dx); }
+  }, { passive: false });
   doc.addEventListener('touchend', (e) => {
-    if (!R || e.touches.length || multi) return;
-    const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy, dt = Date.now() - st;
-    const sel = win.getSelection();
-    if (sel && !sel.isCollapsed) return;
-    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 800) {
-      if (R.el.classList.contains('chrome')) toggleChrome(false);
-      hideHlBar();
-      dx < 0 ? R.rendition.next() : R.rendition.prev();
+    if (!R || !g || e.touches.length) return;
+    const gg = g; g = null;
+    const t = e.changedTouches[0]; const dx = t.screenX - gg.sx, dt = Date.now() - gg.t;
+    if (selActive()) { if (gg.horiz) snapBack(); return; }
+    if (gg.horiz) {
+      const fast = Math.abs(dx) / dt > 0.35;
+      if (Math.abs(dx) > window.innerWidth * 0.18 || (fast && Math.abs(dx) > 30)) turn(dx < 0 ? 1 : -1, dx);
+      else snapBack();
       return;
     }
-    if (moved || dt > 450) return;
-    if (e.target.closest && e.target.closest('a[href]')) return; // let links navigate
-    lastTouchTap = Date.now();
-    const x = (t.clientX + frameLeft(contents)) / window.innerWidth;
-    setTimeout(() => tapAt(x), 140);
-  }, { passive: true });
-  doc.addEventListener('click', (e) => {
-    if (!R || Date.now() - lastTouchTap < 800) return; // already handled as a touch
+    if (gg.moved || dt > 450) return;
     if (e.target.closest && e.target.closest('a[href]')) return;
-    const sel = win.getSelection(); if (sel && !sel.isCollapsed) return;
+    lastTouchTap = Date.now();
+    const x = (gg.cx + gg.fl) / window.innerWidth;
+    setTimeout(() => tapAt(x, contents, gg.cx, gg.cy), 120);
+  }, { passive: true });
+  doc.addEventListener('touchcancel', () => { if (g && g.horiz) snapBack(); g = null; }, { passive: true });
+  doc.addEventListener('click', (e) => {
+    if (!R || Date.now() - lastTouchTap < 800) return;
+    if (e.target.closest && e.target.closest('a[href]')) return;
+    if (selActive()) return;
     const x = (e.clientX + frameLeft(contents)) / window.innerWidth;
-    setTimeout(() => tapAt(x), 60);
+    setTimeout(() => tapAt(x, contents, e.clientX, e.clientY), 60);
   });
   doc.addEventListener('selectionchange', () => {
     const s = win.getSelection();
@@ -275,21 +333,22 @@ function wireContentGestures(contents) {
   doc.addEventListener('keyup', onKey);
 }
 
-/* Taps on the page margins and header/footer, outside the book's frame */
+/* Margins, header and footer sit outside the book's frame */
 function wireOuterTaps(el) {
-  let sx = 0, sy = 0, st = 0;
-  const outside = (target) => !target.closest('.rbar, .hlbar, .sheet, .scrim, .loading-veil:not(.gone)');
-  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); }, { passive: true });
+  let sx = 0, sy = 0, st = 0, ok = false;
+  const outside = (target) => !target.closest('.rbar, .hlbar, .sheet, .scrim, .mini, .extend-banner, .loading-veil:not(.gone)');
+  el.addEventListener('touchstart', (e) => { ok = outside(e.target) && e.target.tagName !== 'IFRAME'; const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); }, { passive: true });
   el.addEventListener('touchend', (e) => {
-    if (!outside(e.target) || e.target.tagName === 'IFRAME') return;
+    if (!ok || !R) return;
     const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy;
-    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.3) { toggleChrome(false); dx < 0 ? R.rendition.next() : R.rendition.prev(); return; }
-    if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && Date.now() - st < 450) { lastTouchTap = Date.now(); const x = t.clientX / window.innerWidth; setTimeout(() => tapAt(x), 140); }
+    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.3) { turn(dx < 0 ? 1 : -1); return; }
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && Date.now() - st < 450) { lastTouchTap = Date.now(); const x = t.clientX / window.innerWidth; setTimeout(() => tapAt(x), 120); }
   }, { passive: true });
   el.addEventListener('click', (e) => {
     if (Date.now() - lastTouchTap < 800 || !outside(e.target) || e.target.closest('button, input')) return;
     tapAt(e.clientX / window.innerWidth);
   });
+  $('.extend-banner [data-x]', el).addEventListener('click', cancelExtend);
 }
 
 /* ───────────────────────────── location ───────────────────────────── */
@@ -311,7 +370,6 @@ function onRelocated(loc) {
     $('.s-pct', el).textContent = Math.round(pct * 100) + '%';
   }
   $('.s-chap', el).textContent = chap || '—';
-  $('.m-time', el).textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   updateBookmarkIcon();
   clearTimeout(saveTimer);
   const id = R.rec.id, cfi = loc.start.cfi, atEnd = !!loc.atEnd;
@@ -343,6 +401,10 @@ function cmpCfi(a, b) { try { return new window.ePub.CFI().compare(a, b); } catc
 function onSelected(cfiRange, contents) {
   const text = contents.window.getSelection().toString().trim();
   if (!text) return;
+  if (R.extend) { // a selection on a later page finishes a multi-page highlight
+    try { const r = contents.window.getSelection().getRangeAt(0); finishExtend(contents, r.endContainer, r.endOffset); } catch (e) {}
+    return;
+  }
   R.sel = { cfi: cfiRange, contents, text };
   R.editing = null;
   toggleChrome(false);
@@ -350,6 +412,7 @@ function onSelected(cfiRange, contents) {
 }
 function showHlBar(hl) {
   const bar = $('.hlbar', R.el);
+  $('[data-hl="extend"]', bar).hidden = !!hl;
   $$('.dot', bar).forEach((d) => d.setAttribute('aria-pressed', hl && d.dataset.color === hl.color ? 'true' : 'false'));
   $('[data-hl="delete"]', bar).hidden = !hl;
   bar.classList.add('on');
@@ -357,11 +420,12 @@ function showHlBar(hl) {
 function hideHlBar() { if (!R) return; $('.hlbar', R.el).classList.remove('on'); R.editing = null; }
 function clearSelection() { try { R.sel?.contents.window.getSelection().removeAllRanges(); } catch (e) {} R.sel = null; }
 
-async function createHighlight(color, quiet) {
-  if (!R.sel) return null;
-  const { cfi, text } = R.sel;
+async function createHighlight(color, quiet, given) {
+  const src = given || R.sel;
+  if (!src) return null;
+  const { cfi, text } = src;
   let exact = text;
-  try { const range = await R.book.getRange(cfi); if (range) exact = range.toString().trim() || text; } catch (e) {}
+  if (!given) { try { const range = await R.book.getRange(cfi); if (range) exact = range.toString().trim() || text; } catch (e) {} }
   const sec = R.book.spine.get(cfi);
   const hl = {
     id: uid(), bookId: R.rec.id, type: 'highlight', cfi, text: exact, note: '', color,
@@ -376,6 +440,48 @@ async function createHighlight(color, quiet) {
   if (!quiet) hideHlBar();
   return hl;
 }
+/* ── highlights that run across pages ──
+   Start from a selection, turn pages freely, then tap the last word (or select text) on a later page. */
+function startExtend() {
+  if (!R.sel) return;
+  const { cfi, contents } = R.sel;
+  let start;
+  try { const r = contents.window.getSelection().getRangeAt(0); start = { node: r.startContainer, offset: r.startOffset }; } catch (e) { return; }
+  R.extend = { cfi, contents, start };
+  try { R.rendition.annotations.underline(cfi, {}, null, 'q-start', { stroke: '#D6B66B', 'stroke-width': '3', 'stroke-opacity': '0.9' }); } catch (e) {}
+  clearSelection(); hideHlBar();
+  R.el.classList.add('extending');
+}
+function cancelExtend() {
+  if (!R || !R.extend) return;
+  try { R.rendition.annotations.remove(R.extend.cfi, 'underline'); } catch (e) {}
+  R.extend = null; R.el.classList.remove('extending');
+}
+function caretAt(doc, x, y) {
+  if (doc.caretRangeFromPoint) { const r = doc.caretRangeFromPoint(x, y); return r && { node: r.startContainer, offset: r.startOffset }; }
+  if (doc.caretPositionFromPoint) { const p = doc.caretPositionFromPoint(x, y); return p && { node: p.offsetNode, offset: p.offset }; }
+  return null;
+}
+async function finishExtend(contents, node, offset) {
+  const ex = R.extend; if (!ex) return;
+  if (contents.document !== ex.contents.document) { toast('A highlight can run across pages within one chapter'); return; }
+  // stretch the end to the end of the tapped word
+  if (node && node.nodeType === 3) { const t = node.textContent; while (offset < t.length && !/\s/.test(t[offset])) offset++; }
+  const doc = contents.document; const r = doc.createRange();
+  try {
+    r.setStart(ex.start.node, ex.start.offset); r.setEnd(node, offset);
+    if (r.collapsed) { r.setStart(node, offset); r.setEnd(ex.start.node, ex.start.offset); }
+  } catch (e) { toast('Tap a word after where the highlight starts'); return; }
+  const text = r.toString().replace(/\s+/g, ' ').trim();
+  if (!text) { toast('Tap a word after where the highlight starts'); return; }
+  let cfi; try { cfi = contents.cfiFromRange(r); } catch (e) { toast('That passage could not be highlighted'); return; }
+  cancelExtend();
+  try { contents.window.getSelection().removeAllRanges(); } catch (e) {}
+  const hl = await createHighlight(settings.lastColor || 'amber', true, { cfi, text });
+  haptic(); toast('Highlighted across pages');
+  if (hl) { R.editing = hl; showHlBar(hl); }
+}
+
 function editHighlight(id) {
   const hl = R.highlights.find((x) => x.id === id); if (!hl) return;
   toggleChrome(false);
