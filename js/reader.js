@@ -43,6 +43,8 @@ function readerCss() {
     img, svg, video { max-width: 100% !important; height: auto; ${t.dark ? 'filter: brightness(.86);' : ''} }
     ::selection { background: rgba(214, 182, 107, ${t.dark ? '.40' : '.45'}); }
     pre, code { white-space: pre-wrap !important; font-size: .9em; }
+    @media (hover: none) { html, body { cursor: pointer; } }
+    img, svg { -webkit-touch-callout: none; -webkit-user-drag: none; }
   `;
 }
 
@@ -61,6 +63,7 @@ function hlStyle(color) {
 function applyChromeVars(el) {
   const t = THEMES[settings.readerTheme] || THEMES.paper;
   el.style.colorScheme = t.dark ? 'dark' : 'light';
+  document.documentElement.style.backgroundColor = t.bg; document.body.style.backgroundColor = t.bg;
   Object.entries({ '--r-bg': t.bg, '--r-fg': t.fg, '--r-muted': t.muted, '--r-line': t.line, '--r-glass': t.glass, '--r-glass-strong': t.strong, '--r-sheet': t.sheet, '--r-margin': settings.margin + 'px' })
     .forEach(([k, v]) => el.style.setProperty(k, v));
   const meta = document.querySelector('meta[name="theme-color"]:not([media])') || document.head.appendChild(Object.assign(document.createElement('meta'), { name: 'theme-color' }));
@@ -122,6 +125,7 @@ export async function openEpub(rec, { onClose } = {}) {
   rendition.on('keyup', onKey);
 
   wireChrome();
+  wireOuterTaps(el);
   document.addEventListener('keyup', onKey);
 
   try {
@@ -220,42 +224,72 @@ function onKey(e) {
 }
 
 /* ───────────────────────── gestures inside the page ───────────────────────── */
+// Taps are read from touchend (iOS does not reliably fire click on plain text or images).
+// Mouse clicks are handled separately for desktop. Highlight taps arrive as clicks from epub.js;
+// the short delay lets those win over a page turn.
+let lastTouchTap = 0;
+function tapAt(x) {
+  if (!R) return;
+  if (Date.now() - R.hits < 450) return; // a highlight was tapped
+  if (R.el.querySelector('.hlbar.on')) { hideHlBar(); return; }
+  if (x < 0.27) { toggleChrome(false); R.rendition.prev(); }
+  else if (x > 0.73) { toggleChrome(false); R.rendition.next(); }
+  else toggleChrome();
+}
+function frameLeft(contents) {
+  try { const f = contents.window.frameElement; return f ? f.getBoundingClientRect().left : 0; } catch (e) { return 0; }
+}
 function wireContentGestures(contents) {
   const doc = contents.document, win = contents.window;
-  let sx = 0, sy = 0, st = 0, moved = false;
-  doc.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); moved = false; }, { passive: true });
-  doc.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) moved = true; }, { passive: true });
+  let sx = 0, sy = 0, st = 0, moved = false, multi = false;
+  doc.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); moved = false; multi = e.touches.length > 1; }, { passive: true });
+  doc.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) moved = true; if (e.touches.length > 1) multi = true; }, { passive: true });
   doc.addEventListener('touchend', (e) => {
-    if (!R || e.touches.length) return;
+    if (!R || e.touches.length || multi) return;
     const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy, dt = Date.now() - st;
     const sel = win.getSelection();
     if (sel && !sel.isCollapsed) return;
-    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.4 && dt < 700) {
+    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.3 && dt < 800) {
       if (R.el.classList.contains('chrome')) toggleChrome(false);
       hideHlBar();
       dx < 0 ? R.rendition.next() : R.rendition.prev();
+      return;
     }
+    if (moved || dt > 450) return;
+    if (e.target.closest && e.target.closest('a[href]')) return; // let links navigate
+    lastTouchTap = Date.now();
+    const x = (t.clientX + frameLeft(contents)) / window.innerWidth;
+    setTimeout(() => tapAt(x), 140);
   }, { passive: true });
   doc.addEventListener('click', (e) => {
-    if (!R) return;
-    if (e.target.closest && e.target.closest('a[href]')) return; // let links navigate
+    if (!R || Date.now() - lastTouchTap < 800) return; // already handled as a touch
+    if (e.target.closest && e.target.closest('a[href]')) return;
     const sel = win.getSelection(); if (sel && !sel.isCollapsed) return;
-    const frame = contents.document.defaultView.frameElement;
-    const fx = frame ? frame.getBoundingClientRect().left : 0;
-    const x = (e.clientX + fx) / window.innerWidth;
-    setTimeout(() => {
-      if (!R || Date.now() - R.hits < 400) return; // tapped a highlight
-      if (R.el.querySelector('.hlbar.on')) { hideHlBar(); return; }
-      if (x < 0.27) { toggleChrome(false); R.rendition.prev(); }
-      else if (x > 0.73) { toggleChrome(false); R.rendition.next(); }
-      else toggleChrome();
-    }, 60);
+    const x = (e.clientX + frameLeft(contents)) / window.innerWidth;
+    setTimeout(() => tapAt(x), 60);
   });
   doc.addEventListener('selectionchange', () => {
     const s = win.getSelection();
     if (R && (!s || s.isCollapsed) && !R.editing) setTimeout(() => { const s2 = win.getSelection(); if (!s2 || s2.isCollapsed) hideHlBar(); }, 200);
   });
   doc.addEventListener('keyup', onKey);
+}
+
+/* Taps on the page margins and header/footer, outside the book's frame */
+function wireOuterTaps(el) {
+  let sx = 0, sy = 0, st = 0;
+  const outside = (target) => !target.closest('.rbar, .hlbar, .sheet, .scrim, .loading-veil:not(.gone)');
+  el.addEventListener('touchstart', (e) => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; st = Date.now(); }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (!outside(e.target) || e.target.tagName === 'IFRAME') return;
+    const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy) * 1.3) { toggleChrome(false); dx < 0 ? R.rendition.next() : R.rendition.prev(); return; }
+    if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && Date.now() - st < 450) { lastTouchTap = Date.now(); const x = t.clientX / window.innerWidth; setTimeout(() => tapAt(x), 140); }
+  }, { passive: true });
+  el.addEventListener('click', (e) => {
+    if (Date.now() - lastTouchTap < 800 || !outside(e.target) || e.target.closest('button, input')) return;
+    tapAt(e.clientX / window.innerWidth);
+  });
 }
 
 /* ───────────────────────────── location ───────────────────────────── */
@@ -557,6 +591,7 @@ export async function closeReader() {
   document.removeEventListener('keyup', onKey);
   r.el.style.transition = 'opacity .25s'; r.el.style.opacity = '0';
   document.body.classList.remove('reading');
+  document.documentElement.style.backgroundColor = ''; document.body.style.backgroundColor = '';
   const m = document.querySelector('meta[name="theme-color"]:not([media])'); if (m) m.remove();
   setTimeout(() => { try { r.book.destroy(); } catch (e) {} r.el.remove(); }, 260);
   r.onClose && r.onClose();

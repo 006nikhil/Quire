@@ -63,6 +63,10 @@
 /* ───────────────────────── base ───────────────────────── */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+/* iOS home-screen apps can report a viewport shorter than the screen; --gap is the missing strip,
+   measured in index.html, so full-screen layers reach the real bottom edge. */
+#app, .reader, .comic { bottom: calc(0px - var(--gap, 0px)) !important; }
+.tabbar, .sheet, .scrim { bottom: calc(0px - var(--gap, 0px)); }
 body {
   font-family: var(--f-ui); font-size: 17px; line-height: 1.4;
   -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
@@ -325,7 +329,7 @@ mark.q { background: rgba(214, 182, 107, .32); color: inherit; border-radius: 2p
 .reading .toast { bottom: calc(var(--safe-b) + 90px); }
 
 /* ───────────────────────── reader (EPUB) ───────────────────────── */
-.reader { position: fixed; inset: 0; z-index: 50; background: var(--r-bg, #F6F4EE); color: var(--r-fg, #222); transition: background .3s, color .3s; }
+.reader { position: fixed; inset: 0; z-index: 50; overflow: hidden; cursor: default; background: var(--r-bg, #F6F4EE); color: var(--r-fg, #222); transition: background .3s, color .3s; }
 .reader .stage { position: absolute; top: calc(var(--safe-t) + 34px); bottom: calc(var(--safe-b) + 34px); left: var(--r-margin, 22px); right: var(--r-margin, 22px); }
 .reader .stage > div { height: 100%; }
 .reader iframe { background: transparent !important; color-scheme: inherit; }
@@ -416,7 +420,7 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
 .loading-veil .s { font-size: 13px; opacity: .55; margin-top: 10px; text-align: center; }
 
 /* ───────────────────────── comic reader ───────────────────────── */
-.comic { position: fixed; inset: 0; z-index: 50; background: #050505; color: #EEE; --r-fg: #EEE; --r-bg: #111; --r-muted: #999; --r-line: rgba(255,255,255,.14); --r-glass: rgba(20,20,20,.72); --r-glass-strong: rgba(28,28,28,.9); --r-sheet: #161616; }
+.comic { position: fixed; inset: 0; z-index: 50; overflow: hidden; background: #050505; color: #EEE; --r-fg: #EEE; --r-bg: #111; --r-muted: #999; --r-line: rgba(255,255,255,.14); --r-glass: rgba(20,20,20,.72); --r-glass-strong: rgba(28,28,28,.9); --r-sheet: #161616; }
 .comic.paper { background: #1d1d1f; }
 .comic .viewport { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
 .comic .spread { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; transform-origin: 0 0; will-change: transform; }

@@ -25,10 +25,11 @@ export async function openComic(rec, { onClose } = {}) {
   </div>`);
   $('#reader-root').appendChild(el);
   document.body.classList.add('reading');
+  document.documentElement.style.backgroundColor = document.body.style.backgroundColor = rec.format === 'pdf' ? '#1d1d1f' : '#050505';
 
   let src;
   try { src = await openSource(file.blob, rec.format, rec.fileName); }
-  catch (e) { console.error(e); el.remove(); document.body.classList.remove('reading'); toast(e.message || 'This comic could not be opened.', 4000); return; }
+  catch (e) { console.error(e); el.remove(); document.body.classList.remove('reading'); document.documentElement.style.backgroundColor = document.body.style.backgroundColor = ''; toast(e.message || 'This comic could not be opened.', 4000); return; }
 
   C = { rec, el, src, onClose, count: src.count, page: clamp(+rec.loc || 0, 0, src.count - 1), urls: new Map(), units: [], u: 0, zoom: { s: 1, x: 0, y: 0 }, thumbs: new Map(), mode: settings.comicMode };
   if (rec.pages !== src.count) db.patch('books', rec.id, { pages: src.count });
@@ -355,6 +356,7 @@ export function closeComic() {
   window.removeEventListener('resize', onResize);
   c.io && c.io.disconnect(); c.tio && c.tio.disconnect();
   document.body.classList.remove('reading');
+  document.documentElement.style.backgroundColor = ''; document.body.style.backgroundColor = '';
   c.el.style.transition = 'opacity .25s'; c.el.style.opacity = '0';
   setTimeout(() => { c.el.remove(); for (const p of c.urls.values()) p.then((u) => u && URL.revokeObjectURL(u)); c.src.close(); }, 260);
   c.onClose && c.onClose();

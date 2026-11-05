@@ -20,6 +20,22 @@
 <link rel="stylesheet" href="css/app.css">
 <script>
   try { const t = JSON.parse(localStorage.getItem('quire.theme') || '"system"'); if (t !== 'system') document.documentElement.dataset.theme = t; } catch (e) {}
+  // Home-screen apps on iOS can lay out a viewport shorter than the screen, leaving a dead strip
+  // at the bottom. Measure it and let full-screen layers extend over it.
+  (function () {
+    var standalone = navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    function fit() {
+      var gap = 0;
+      if (standalone) {
+        var portrait = window.innerHeight >= window.innerWidth;
+        var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+        var d = full - window.innerHeight;
+        if (d > 0 && d < 160) gap = d;
+      }
+      document.documentElement.style.setProperty('--gap', gap + 'px');
+    }
+    fit(); addEventListener('resize', fit); addEventListener('orientationchange', function () { setTimeout(fit, 300); });
+  })();
 </script>
 </head>
 <body>
