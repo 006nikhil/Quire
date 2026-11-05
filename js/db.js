@@ -27,13 +27,23 @@ function open() {
   return dbp;
 }
 function req(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function write(name, fn) {
+  const tx = (await open()).transaction(name, 'readwrite');
+  const r = fn(tx.objectStore(name));
+  return new Promise((res, rej) => {
+    tx.oncomplete = () => res(r.result);
+    tx.onabort = tx.onerror = () => rej(tx.error || r.error || new Error('Could not save'));
+  });
+}
 async function store(name, mode = 'readonly') { return (await open()).transaction(name, mode).objectStore(name); }
 
 export const db = {
   async get(s, k) { return req((await store(s)).get(k)); },
   async all(s) { return req((await store(s)).getAll()); },
-  async put(s, v) { return req((await store(s, 'readwrite')).put(v)); },
-  async del(s, k) { return req((await store(s, 'readwrite')).delete(k)); },
+  // Writes resolve only once the database has committed them, so a failed save (e.g. not enough
+  // storage for a large comic) is reported instead of silently leaving a book with no file.
+  async put(s, v) { return write(s, (st) => st.put(v)); },
+  async del(s, k) { return write(s, (st) => st.delete(k)); },
   async byIndex(s, idx, v) { return req((await store(s)).index(idx).getAll(v)); },
   async kvGet(k, d) { const r = await this.get('kv', k); return r ? r.v : d; },
   async kvSet(k, v) { return this.put('kv', { k, v }); },

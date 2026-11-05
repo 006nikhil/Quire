@@ -3,6 +3,7 @@ import { db, settings, saveSettings, storageInfo } from './db.js';
 import { formatOf, sniffFormat, openSource } from './source.js';
 import { renderMarginalia, resetMarginalia, marginalia, openSignIn, openSendSheet } from './marginalia.js';
 
+const APP_VERSION = 8;
 const pages = { library: $('#page-library'), marginalia: $('#page-marginalia'), convert: $('#page-convert') };
 let tab = 'library';
 
@@ -61,9 +62,22 @@ async function addEpub(file, extra = {}) {
   if (!cover) cover = await makeCover({ title, author, seed: title });
   cover = await packCover(cover);
   const rec = { id: uid(), kind: 'book', format: 'epub', title, author, cover, size: file.size, fileName: file.name, addedAt: Date.now(), openedAt: 0, progress: 0, loc: null, ...extra };
-  await db.put('files', { id: rec.id, blob: file });
+  await saveFileRecord(rec, file);
   await db.put('books', rec);
   return rec;
+}
+
+async function saveFileRecord(rec, file) {
+  try { await db.put('files', { id: rec.id, blob: file }); }
+  catch (e) {
+    const st = await storageInfo();
+    const free = st.quota ? st.quota - st.usage : 0;
+    if (e && (e.name === 'QuotaExceededError' || /quota|space|storage/i.test(e.message || '')))
+      throw new Error(`Not enough space to store it (${fmtBytes(file.size)} needed${free ? `, ${fmtBytes(free)} available to Quire` : ''}).`);
+    throw new Error(`It could not be saved on this device (${e?.name || 'unknown error'}).`);
+  }
+  const back = await db.get('files', rec.id);
+  if (!back || !back.blob) throw new Error('It could not be saved on this device.');
 }
 
 async function addPaged(file, fmt) {
@@ -75,15 +89,19 @@ async function addPaged(file, fmt) {
   if (!cover) cover = await makeCover({ title, seed: title, kind: 'comic' });
   cover = await packCover(cover);
   const rec = { id: uid(), kind: fmt === 'pdf' ? 'pdf' : 'comic', format: fmt, title, author: '', cover, size: file.size, fileName: file.name, addedAt: Date.now(), openedAt: 0, progress: 0, loc: 0, pages: count };
-  await db.put('files', { id: rec.id, blob: file });
+  if (file.size > 150 * 1024 * 1024) toast(`Saving ${title} on this iPhone. Large comics take a moment.`, 60000);
+  await saveFileRecord(rec, file);
   await db.put('books', rec);
   return rec;
 }
 
 const fileIn = $('#file-in');
 fileIn.addEventListener('change', async () => { const fs = [...fileIn.files]; fileIn.value = ''; if (fileIn._handler) { const fn = fileIn._handler; fileIn._handler = null; fn(fs); } else importFiles(fs); });
-// No accept filter: iOS greys out file types it doesn't know (like .cbz), so every file is offered and Quire checks it.
-function pickFiles(handler) { fileIn._handler = handler || null; fileIn.removeAttribute('accept'); fileIn.click(); }
+// iOS only lets you pick file types the page names. With no list it offers documents and images
+// but greys out archives like .cbz. "application/octet-stream" maps to "any data file" on iOS,
+// which makes every file selectable; Quire then works out what each file really is.
+const ACCEPT = '.epub,.cbz,.cbr,.cb7,.cbt,.zip,.rar,.7z,.tar,.pdf,.txt,.md,.markdown,.html,.htm,.xhtml,.docx,.rtf,.fb2,application/octet-stream,application/zip,application/x-zip-compressed,application/x-cbz,application/vnd.comicbook+zip,application/x-cbr,application/vnd.comicbook-rar,application/x-rar-compressed,application/vnd.rar,application/x-7z-compressed,application/x-tar,application/epub+zip,application/pdf,text/*,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+function pickFiles(handler) { fileIn._handler = handler || null; fileIn.setAttribute('accept', ACCEPT); fileIn.click(); }
 
 // drag and drop anywhere
 let dragDepth = 0;
@@ -293,6 +311,11 @@ async function settingsSheet() {
       <div class="row"><span class="grow">Storage used</span><span class="v">${fmtBytes(st.usage || 0)}</span></div>
       <div class="row"><span class="grow">Protected from clean-up</span><span class="v">${st.persisted ? 'Yes' : 'Ask again on next launch'}</span></div>
     </div>
+    <p class="glabel">About</p>
+    <div class="group">
+      <div class="row"><span class="grow">Quire version</span><span class="v">${APP_VERSION}</span></div>
+      <button class="row" data-s="update"><span class="grow">Update now</span>${icon('refresh')}</button>
+    </div>
     <p style="color:var(--muted);font-size:13px;line-height:1.5;margin:14px 4px 0">Books and comics live only on this device. Add Quire to your Home Screen from Safari’s share menu so iOS keeps them safe and it opens full screen.</p>`);
   s.el.addEventListener('click', async (e) => {
     const t = e.target.closest('[data-theme]');
@@ -304,6 +327,13 @@ async function settingsSheet() {
     const a = e.target.closest('[data-s]')?.dataset.s;
     if (a === 'signin') { s.close(); openSignIn({ then: settingsSheet }); }
     if (a === 'signout') { await marginalia.signOut(); s.close(); toast('Signed out'); }
+    if (a === 'update') {
+      // fetch fresh app files; books, comics and highlights live in IndexedDB and are untouched
+      toast('Updating Quire', 6000);
+      try { const reg = await navigator.serviceWorker?.getRegistration(); if (reg) await reg.update(); } catch (err) {}
+      try { const ks = await caches.keys(); await Promise.all(ks.filter((k) => k.startsWith('quire-v')).map((k) => caches.delete(k))); } catch (err) {}
+      setTimeout(() => location.reload(), 600);
+    }
     if (a === 'refresh') { toast('Refreshing'); const ok = await marginalia.refreshInBackground(); toast(ok ? 'Highlights up to date' : 'Marginalia is unreachable'); }
     if (a === 'export') {
       const books = await db.all('books'); const hls = await db.all('highlights');
@@ -380,12 +410,15 @@ marginalia.refreshInBackground();
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').then((reg) => {
-    reg.addEventListener('updatefound', () => {
-      const nw = reg.installing;
-      nw && nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) toast('Quire was updated. Reopen it to use the new version.', 5000); });
-    });
-  }).catch(() => {});
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => reg.update().catch(() => {})).catch(() => {});
+  // when a new version takes over, reload straight away unless a book is open
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    if (document.body.classList.contains('reading')) { toast('Quire was updated. It will use the new version next time you open it.', 5000); return; }
+    reloaded = true; location.reload();
+  });
 }
 
 // share-target style: open files passed via ?open (future) — and expose for debugging
