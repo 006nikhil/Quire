@@ -19,6 +19,20 @@ export function formatOf(name) {
   return null;
 }
 
+// Identify a file by its first bytes, for files with a missing or unusual extension.
+export async function sniffFormat(file) {
+  try {
+    const b = new Uint8Array(await file.slice(0, 512).arrayBuffer());
+    const str = (i, n) => String.fromCharCode(...b.slice(i, i + n));
+    if (str(0, 4) === '%PDF') return 'pdf';
+    if (str(0, 4) === 'Rar!') return 'rar';
+    if (b[0] === 0x37 && b[1] === 0x7A && b[2] === 0xBC && b[3] === 0xAF) return '7z';
+    if (str(257, 5) === 'ustar') return 'tar';
+    if (b[0] === 0x50 && b[1] === 0x4B) return str(30, 28) === 'mimetypeapplication/epub+zip' ? 'epub' : 'zip';
+  } catch (e) {}
+  return null;
+}
+
 async function zipSource(blob) {
   const zip = await window.JSZip.loadAsync(blob);
   const entries = Object.values(zip.files).filter((f) => !f.dir && IMG.test(f.name) && !junk(f.name)).sort((a, b) => natCompare(a.name, b.name));

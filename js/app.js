@@ -1,6 +1,6 @@
 import { $, $$, h, icon, esc, uid, toast, openSheet, confirmSheet, needEpub, makeCover, shrinkImage, blobUrl, packCover, forgetUrl, plural, fmtBytes, relTime, saveFile, closeAllSheets, topSheet } from './util.js';
 import { db, settings, saveSettings, storageInfo } from './db.js';
-import { formatOf, openSource } from './source.js';
+import { formatOf, sniffFormat, openSource } from './source.js';
 import { renderMarginalia, resetMarginalia, marginalia, openSignIn, openSendSheet } from './marginalia.js';
 
 const pages = { library: $('#page-library'), marginalia: $('#page-marginalia'), convert: $('#page-convert') };
@@ -26,8 +26,8 @@ async function importFiles(files) {
   files = [...files]; if (!files.length) return;
   let added = 0, lastId = null;
   for (const f of files) {
-    const fmt = formatOf(f.name);
-    if (!fmt) { toast(`${f.name} isn’t a format Quire can read`); continue; }
+    const fmt = formatOf(f.name) || await sniffFormat(f);
+    if (!fmt) { toast(`${f.name} isn’t a format Quire can read`); await new Promise((r) => setTimeout(r, 1500)); continue; }
     toast(files.length > 1 ? `Adding ${added + 1} of ${files.length}: ${f.name}` : `Adding ${f.name}`, 60000);
     try {
       let rec;
@@ -82,7 +82,8 @@ async function addPaged(file, fmt) {
 
 const fileIn = $('#file-in');
 fileIn.addEventListener('change', async () => { const fs = [...fileIn.files]; fileIn.value = ''; if (fileIn._handler) { const fn = fileIn._handler; fileIn._handler = null; fn(fs); } else importFiles(fs); });
-function pickFiles(handler, accept) { fileIn._handler = handler || null; if (accept) fileIn.accept = accept; else fileIn.accept = '.epub,.cbz,.cbr,.cb7,.cbt,.zip,.rar,.7z,.pdf,.txt,.md,.markdown,.html,.htm,.xhtml,.docx,.rtf,.fb2'; fileIn.click(); }
+// No accept filter: iOS greys out file types it doesn't know (like .cbz), so every file is offered and Quire checks it.
+function pickFiles(handler) { fileIn._handler = handler || null; fileIn.removeAttribute('accept'); fileIn.click(); }
 
 // drag and drop anywhere
 let dragDepth = 0;
@@ -338,7 +339,7 @@ function renderConvert() {
   drawJobs();
   page.onclick = async (e) => {
     const a = e.target.closest('[data-c]')?.dataset.c;
-    if (a === 'pick') pickFiles((fs) => convertMany(fs), '.docx,.pdf,.txt,.md,.markdown,.html,.htm,.xhtml,.rtf,.fb2');
+    if (a === 'pick') pickFiles((fs) => convertMany(fs));
     const j = jobs.find((x) => x.id === e.target.closest('[data-job]')?.dataset.job); if (!j) return;
     if (a === 'save') saveFile(j.result.blob, j.result.name);
     if (a === 'add') {
