@@ -63,10 +63,9 @@
 /* ───────────────────────── base ───────────────────────── */
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overscroll-behavior: none; }
-/* iOS home-screen apps can report a viewport shorter than the screen; --gap is the missing strip,
-   measured in index.html, so full-screen layers reach the real bottom edge. */
-#app, .reader, .comic { bottom: calc(0px - var(--gap, 0px)) !important; }
-.tabbar, .sheet, .scrim { bottom: calc(0px - var(--gap, 0px)); }
+/* iOS 26 home-screen apps leave a strip below the app that no page content can draw into
+   (WebKit bug 301994). It shows the page background, so the tab bar uses that same solid colour
+   and the two read as one bar. */
 body {
   font-family: var(--f-ui); font-size: 17px; line-height: 1.4;
   -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%;
@@ -108,7 +107,7 @@ svg.i { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-widt
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   padding: 6px calc(var(--safe-r) + 12px) calc(var(--safe-b) + 4px) calc(var(--safe-l) + 12px);
-  background: var(--glass); backdrop-filter: saturate(160%) blur(22px); -webkit-backdrop-filter: saturate(160%) blur(22px);
+  background: var(--bg);
   border-top: 1px solid var(--line);
   display: grid; grid-template-columns: repeat(3, 1fr);
 }
