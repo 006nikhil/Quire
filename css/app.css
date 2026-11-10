@@ -300,10 +300,11 @@ mark.q { background: rgba(214, 182, 107, .32); color: inherit; border-radius: 2p
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 81; max-height: 88vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
   background: var(--bg-2); border-radius: 22px 22px 0 0; border-top: 1px solid var(--line-2);
   padding: 8px calc(var(--safe-r) + 20px) calc(var(--safe-b) + 22px) calc(var(--safe-l) + 20px);
-  transform: translateY(105%); transition: transform .38s var(--ease);
+  transform: translateY(105%); opacity: 0; visibility: hidden;
+  transition: transform .38s var(--ease), opacity .2s, visibility 0s .38s;
   max-width: 640px; margin: 0 auto; overscroll-behavior: contain;
 }
-.sheet.on { transform: none; }
+.sheet.on { transform: none; opacity: 1; visibility: visible; transition: transform .38s var(--ease), opacity .15s, visibility 0s; }
 .sheet .grabber { width: 38px; height: 5px; border-radius: 3px; background: var(--line-2); margin: 0 auto 14px; }
 .sheet h3 { font-family: var(--f-display); font-weight: 400; font-size: 22px; margin: 2px 0 6px; }
 .sheet .lead { color: var(--ink-2); font-size: 15px; margin: 0 0 18px; }
@@ -348,6 +349,7 @@ mark.q { background: rgba(214, 182, 107, .32); color: inherit; border-radius: 2p
 .reader .mini:active { background: var(--r-line); }
 .reader .stage { will-change: transform, opacity; }
 .extend-banner {
+  visibility: hidden;
   position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 40px); z-index: 7;
   display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 16px; border-radius: 16px;
   background: var(--r-glass-strong); color: var(--r-fg); border: 1px solid var(--gilt); font-size: 14px; line-height: 1.35;
@@ -356,16 +358,17 @@ mark.q { background: rgba(214, 182, 107, .32); color: inherit; border-radius: 2p
 }
 .extend-banner span { flex: 1; }
 .extend-banner button { color: var(--gilt); font-weight: 600; padding: 8px 10px; }
-.reader.extending .extend-banner { transform: none; opacity: 1; pointer-events: auto; }
+.reader.extending .extend-banner { transform: none; opacity: 1; visibility: visible; pointer-events: auto; }
 
 .rbar {
-  position: absolute; left: 0; right: 0; z-index: 5; color: var(--r-fg); transition: transform .35s var(--ease), opacity .3s;
+  position: absolute; left: 0; right: 0; z-index: 5; color: var(--r-fg);
+  opacity: 0; visibility: hidden; transition: transform .35s var(--ease), opacity .25s, visibility 0s .35s;
   background: var(--r-glass); backdrop-filter: saturate(150%) blur(20px); -webkit-backdrop-filter: saturate(150%) blur(20px);
 }
 .rbar.top { top: 0; padding: calc(var(--safe-t) + 4px) calc(var(--safe-r) + 8px) 6px calc(var(--safe-l) + 8px); display: flex; align-items: center; gap: 4px; transform: translateY(-110%); border-bottom: 1px solid var(--r-line); }
 .rbar.top .title { flex: 1; min-width: 0; text-align: center; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rbar.bot { bottom: 0; padding: 12px calc(var(--safe-r) + 18px) calc(var(--safe-b) + 10px) calc(var(--safe-l) + 18px); transform: translateY(110%); border-top: 1px solid var(--r-line); }
-.reader.chrome .rbar, .comic.chrome .rbar { transform: none; }
+.reader.chrome .rbar, .comic.chrome .rbar { transform: none; opacity: 1; visibility: visible; transition: transform .35s var(--ease), opacity .2s, visibility 0s; }
 .rbar .icon-btn { background: none; border: 0; color: var(--r-fg); }
 .rbar .icon-btn.on { color: var(--gilt); }
 .scrub { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--r-muted); font-variant-numeric: tabular-nums; }
@@ -386,9 +389,9 @@ input[type=range]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 
   display: flex; align-items: center; gap: 4px; padding: 7px; border-radius: 30px;
   background: var(--r-glass-strong); color: var(--r-fg); border: 1px solid var(--r-line);
   backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 12px 36px rgba(0,0,0,.28);
-  transition: transform .34s var(--spring);
+  opacity: 0; visibility: hidden; transition: transform .34s var(--spring), opacity .2s, visibility 0s .34s;
 }
-.hlbar.on { transform: translate(-50%, 0); }
+.hlbar.on { transform: translate(-50%, 0); opacity: 1; visibility: visible; transition: transform .34s var(--spring), opacity .15s, visibility 0s; }
 .hlbar .dot { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; }
 .hlbar .dot i { width: 24px; height: 24px; border-radius: 12px; display: block; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
 .hlbar .dot[aria-pressed="true"] i { box-shadow: 0 0 0 2.5px var(--r-bg), 0 0 0 4.5px var(--r-fg); }

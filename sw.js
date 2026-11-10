@@ -2,7 +2,7 @@
 // App code (html, css, js) is fetched fresh from the network first, so updates arrive on the next
 // launch; the cached copy is used when offline or when the network is slow. Large libraries and
 // icons rarely change, so those are served from the cache.
-const VERSION = 'quire-v9';
+const VERSION = 'quire-v10';
 const ASSETS = [
   "./",
   "css/app.css",

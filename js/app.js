@@ -3,7 +3,7 @@ import { db, settings, saveSettings, storageInfo } from './db.js';
 import { formatOf, sniffFormat, openSource } from './source.js';
 import { renderMarginalia, resetMarginalia, marginalia, openSignIn, openSendSheet } from './marginalia.js';
 
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 const pages = { library: $('#page-library'), marginalia: $('#page-marginalia'), convert: $('#page-convert') };
 let tab = 'library';
 
